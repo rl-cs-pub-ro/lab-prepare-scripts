@@ -1,0 +1,226 @@
+#!/bin/bash
+
+/usr/bin/lxc-stop -n red
+/usr/bin/lxc-stop -n green
+/usr/bin/lxc-stop -n blue
+
+sleep 3
+
+/bin/cat > /var/lib/lxc/red/rootfs/etc/network/interfaces <<END
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+	address 192.168.1.2
+	netmask 255.255.255.0
+	broadcast 192.168.1.255
+	network 192.168.1.0
+	gateway 192.168.1.1
+	dns-nameservers 8.8.8.8
+END
+
+/bin/cat > /var/lib/lxc/green/rootfs/etc/network/interfaces <<END
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+	address 192.168.2.2
+	netmask 255.255.255.0
+	broadcast 192.168.2.255
+	network 192.168.2.0
+	gateway 192.168.2.1
+	dns-nameservers 8.8.8.8
+END
+
+/bin/cat > /var/lib/lxc/blue/rootfs/etc/network/interfaces <<END
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+	address 192.168.3.2
+	netmask 255.255.255.0
+	broadcast 192.168.3.255
+	network 192.168.3.0
+	gateway 192.168.3.1
+	dns-nameservers 8.8.8.8
+END
+
+rm -f /var/lib/lxc/red/rootfs/etc/resolv.conf
+rm -f /var/lib/lxc/green/rootfs/etc/resolv.conf
+rm -f /var/lib/lxc/blue/rootfs/etc/resolv.conf
+echo "nameserver 8.8.8.8" > /var/lib/lxc/red/rootfs/etc/resolv.conf
+echo "nameserver 8.8.8.8" > /var/lib/lxc/green/rootfs/etc/resolv.conf
+echo "nameserver 8.8.8.8" > /var/lib/lxc/blue/rootfs/etc/resolv.conf
+
+/bin/cat > /var/lib/lxc/red/rootfs/etc/hosts <<END
+127.0.0.1   localhost
+192.168.1.2 red
+192.168.2.2 green
+192.168.3.2 blue
+192.168.1.1 host
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+END
+
+/bin/cat > /var/lib/lxc/green/rootfs/etc/hosts <<END
+127.0.0.1   localhost
+192.168.1.2 red
+192.168.2.2 green
+192.168.3.2 blue
+192.168.2.1 host
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+END
+
+/bin/cat > /var/lib/lxc/blue/rootfs/etc/hosts <<END
+127.0.0.1   localhost
+192.168.1.2 red
+192.168.2.2 green
+192.168.3.2 blue
+192.168.3.1 host
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+END
+
+/usr/bin/lxc-start -n red -d
+/usr/bin/lxc-start -n green -d
+/usr/bin/lxc-start -n blue -d
+
+sleep 5
+
+/sbin/ip a f dev veth-red
+/sbin/ip a a 192.168.1.1/24 dev veth-red
+/sbin/ip l s dev veth-red up
+
+/sbin/ip a f dev veth-green
+/sbin/ip a a 192.168.2.1/24 dev veth-green
+/sbin/ip l s dev veth-green up
+
+/sbin/ip a f dev veth-blue
+/sbin/ip a a 192.168.3.1/24 dev veth-blue
+/sbin/ip l s dev veth-blue up
+
+/bin/cat > /etc/hosts <<END
+127.0.0.1   localhost
+127.0.1.1   host
+192.168.1.2 red
+192.168.2.2 green
+192.168.3.2 blue
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouter
+END
+
+# Create user `ana' using password `student' and configure authentication from
+# `student@red'.
+lxc-attach -n red -- sh -c "/bin/su - student -c '/bin/mkdir ~/.ssh; /usr/bin/ssh-keygen -q -t rsa -N "'""'" -f ~/.ssh/id_rsa'"
+/usr/sbin/userdel -r ana > /dev/null 2>&1
+/usr/sbin/useradd -m -d /home/ana -s /bin/bash -l ana
+echo "ana:student" | chpasswd
+/bin/mkdir -p /home/ana/.ssh
+/bin/cp /var/lib/lxc/red/rootfs/home/student/.ssh/id_rsa.pub /home/ana/.ssh/authorized_keys
+/bin/chown -R ana:ana /home/ana/.ssh/
+/bin/chmod 777 /home/ana/.ssh/
+
+# Create user `bogdan' on `blue' using password `student' and create SSH key
+# pair.
+lxc-attach -n blue -- sh -c "/usr/sbin/userdel -r bogdan > /dev/null 2>&1"
+lxc-attach -n blue -- sh -c "/usr/sbin/useradd -m -d /home/bogdan -s /bin/bash -l bogdan"
+lxc-attach -n blue -- sh -c "echo 'bogdan:student' | /usr/sbin/chpasswd"
+lxc-attach -n blue -- sh -c "/bin/su - bogdan -c '/bin/mkdir ~/.ssh; /usr/bin/ssh-keygen -q -t rsa -N "'""'" -f ~/.ssh/id_rsa'"
+
+# Create user `corina' on `blue' using password `student'.
+lxc-attach -n blue -- sh -c "/usr/sbin/userdel -r corina > /dev/null 2>&1"
+lxc-attach -n blue -- sh -c "/usr/sbin/useradd -m -d /home/corina -s /bin/bash -l corina"
+lxc-attach -n blue -- sh -c "echo 'corina:student' | /usr/sbin/chpasswd"
+
+# Create large file in `student@green'.
+/bin/dd if=/dev/urandom of=/var/lib/lxc/green/rootfs/home/student/file-100M.dat bs=1M count=100 > /dev/null 2>&1
+lxc-attach -n green -- sh -c "/bin/chown student:student ~student/file-100M.dat" > /dev/null 2>&1
+
+# Create 10M files in `student@host' and `corina@blue'.
+/bin/dd if=/dev/urandom of=/home/student/host-file-10M.dat bs=1M count=10 > /dev/null 2>&1
+/bin/chown student:student /home/student/host-file-10M.dat
+/bin/dd if=/dev/urandom of=/var/lib/lxc/blue/rootfs/home/corina/blue-file-10M.dat bs=1M count=10 > /dev/null 2>&1
+lxc-attach -n blue -- sh -c "/bin/chown corina:corina ~corina/blue-file-10M.dat"
+
+# Create folders in `student@host' and `corina@blue'.
+/bin/rm -fr /home/student/assignment
+/bin/mkdir /home/student/assignment
+echo "x - 1 = 0" > /home/student/assignment/linear.txt
+echo "x^2 - 3x + 2 = 0" > /home/student/assignment/quadratic.txt
+echo "x^3 - 6x^2 + 11x -6 = 0" > /home/student/assignment/cubic.txt
+/bin/chown -R student:student /home/student/assignment
+/bin/rm -fr /var/lib/lxc/blue/rootfs/home/corina/solution
+/bin/mkdir /var/lib/lxc/blue/rootfs/home/corina/solution
+echo "x = 1" > /var/lib/lxc/blue/rootfs/home/corina/solution/linear.txt
+echo "x1 = 1, x2 = 2" > /var/lib/lxc/blue/rootfs/home/corina/solution/quadratic.txt
+echo "x1 = 1, x2 = 2, x3 = 3" > /var/lib/lxc/blue/rootfs/home/corina/solution/cubic.txt
+lxc-attach -n blue -- sh -c "/bin/chown -R corina:corina ~corina/solution"
+
+# Add SSH alias for `student@host'.
+/bin/mkdir /home/student/.ssh > /dev/null 2>&1
+/bin/cat > /home/student/.ssh/config <<END
+Host r
+	User student
+	HostName red
+END
+/bin/chown -R student:student /home/student/.ssh
+
+# Clean known hosts
+/bin/rm -fr /root/.ssh/known_hosts
+/bin/rm -fr /home/student/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/red/rootfs/root/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/green/rootfs/root/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/blue/rootfs/root/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/red/rootfs/home/student/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/green/rootfs/home/student/.ssh/known_hosts
+/bin/rm -fr /var/lib/lxc/blue/rootfs/home/student/.ssh/known_hosts
+
+
+# Add folder `proiecte/' in `student@host':
+/bin/rm -fr /home/ana/proiecte
+/bin/mkdir /home/ana/proiecte
+echo "ana" > /home/ana/proiecte/ana.txt
+echo "are" > /home/ana/proiecte/are.txt
+echo "mere" > /home/ana/proiecte/mere.txt
+/bin/chown -R ana:ana /home/ana/proiecte
+
+# Enable Internet connectivity for containers.
+/sbin/sysctl -q -w net.ipv4.ip_forward=1
+/sbin/iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
