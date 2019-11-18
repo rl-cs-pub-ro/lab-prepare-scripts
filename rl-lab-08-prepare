@@ -116,7 +116,18 @@ END
 /usr/bin/lxc-start -n green -d
 /usr/bin/lxc-start -n blue -d
 
-sleep 5
+apt-get update; apt-get -y install telnet ftp dsniff
+
+function rl_wait_lxc_boot() {
+	local cmd='systemctl is-system-running 2>/dev/null'
+	sudo lxc-attach -n "$1" -- bash -c \
+		'while [[ ! "$('"$cmd"')" =~ (running|degraded) ]]; do sleep 1; done'
+}
+rl_wait_lxc_boot red
+rl_wait_lxc_boot green
+rl_wait_lxc_boot blue
+
+lxc-ls -f
 
 /sbin/ip a f dev veth-red
 /sbin/ip a a 192.168.1.1/24 dev veth-red
@@ -145,9 +156,45 @@ ff02::1 ip6-allnodes
 ff02::2 ip6-allrouter
 END
 
+# Enable Internet connectivity for containers.
+/sbin/sysctl -q -w net.ipv4.ip_forward=1
+/sbin/iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+# Generate and authorize SSH keys
+rm -f /root/.ssh/id_rsa* >/dev/null 2>&1
+mkdir -p /root/.ssh/
+/usr/bin/ssh-keygen -q -t rsa -N '' -f /root/.ssh/id_rsa
+cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+chmod 700 ~/.ssh -R
+mkdir -p /home/student/.ssh/
+cp -af /root/.ssh/id_rsa /home/student/.ssh/id_rsa
+cp -af /root/.ssh/id_rsa.pub /home/student/.ssh/id_rsa.pub
+cat /root/.ssh/id_rsa.pub >> /home/student/.ssh/authorized_keys
+chown student:student /home/student/.ssh -R
+chmod 700 /home/student/.ssh -R
+
+function copy_ssh_auth() {
+	local CONTAINER="$1"
+	mkdir -p /var/lib/lxc/$CONTAINER/rootfs/home/student/.ssh
+	cp -af /root/.ssh/id_rsa /var/lib/lxc/$CONTAINER/rootfs/home/student/.ssh/id_rsa
+	cp -af /root/.ssh/id_rsa.pub /var/lib/lxc/$CONTAINER/rootfs/home/student/.ssh/id_rsa.pub
+	cat /root/.ssh/id_rsa.pub >> /var/lib/lxc/$CONTAINER/rootfs/home/student/.ssh/authorized_keys
+	sudo lxc-attach -n "$CONTAINER" -- bash -c "chown student:student /home/student/.ssh -R; chmod 700 /home/student/.ssh -R"
+}
+
+copy_ssh_auth red
+copy_ssh_auth green
+copy_ssh_auth blue
+
+function install_container() {
+	sudo lxc-attach -n "$1" -- bash -c "apt-get update; apt-get -y install telnet ftp"
+}
+install_container red
+install_container green
+install_container blue
+
 # Create user `ana' using password `student' and configure authentication from
 # `student@red'.
-lxc-attach -n red -- sh -c "/bin/su - student -c '/bin/mkdir ~/.ssh; /usr/bin/ssh-keygen -q -t rsa -N "'""'" -f ~/.ssh/id_rsa'"
 /usr/sbin/userdel -r ana > /dev/null 2>&1
 /usr/sbin/useradd -m -d /home/ana -s /bin/bash -l ana
 echo "ana:student" | chpasswd
@@ -161,7 +208,7 @@ echo "ana:student" | chpasswd
 lxc-attach -n blue -- sh -c "/usr/sbin/userdel -r bogdan > /dev/null 2>&1"
 lxc-attach -n blue -- sh -c "/usr/sbin/useradd -m -d /home/bogdan -s /bin/bash -l bogdan"
 lxc-attach -n blue -- sh -c "echo 'bogdan:student' | /usr/sbin/chpasswd"
-lxc-attach -n blue -- sh -c "/bin/su - bogdan -c '/bin/mkdir ~/.ssh; /usr/bin/ssh-keygen -q -t rsa -N "'""'" -f ~/.ssh/id_rsa'"
+lxc-attach -n blue -- sh -c "/bin/su - bogdan -c 'rm -rf ~/.ssh; /bin/mkdir ~/.ssh; /usr/bin/ssh-keygen -q -t rsa -N "'""'" -f ~/.ssh/id_rsa'"
 
 # Create user `corina' on `blue' using password `student'.
 lxc-attach -n blue -- sh -c "/usr/sbin/userdel -r corina > /dev/null 2>&1"
@@ -219,8 +266,4 @@ echo "ana" > /home/ana/proiecte/ana.txt
 echo "are" > /home/ana/proiecte/are.txt
 echo "mere" > /home/ana/proiecte/mere.txt
 /bin/chown -R ana:ana /home/ana/proiecte
-
-# Enable Internet connectivity for containers.
-/sbin/sysctl -q -w net.ipv4.ip_forward=1
-/sbin/iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
